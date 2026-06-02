@@ -3,52 +3,58 @@ import socket
 import time
 import os
 from threading import Thread
+from http.server import SimpleHTTPRequestHandler
+from socketserver import TCPServer
 
 # =====================================================================
-# SİMÜLE EDİLMİŞ KLASÖR YAPILARI (KLASÖRLERDEN KURTULMAK İÇİN TEK YERDE)
+# RELEASING RENDER: SAHTE HTTP SUNUCUSU (RENDER'I KANDIRMAK İÇİN)
 # =====================================================================
+def run_fake_http():
+    # Render varsayılan olarak 10000 portunu tarar, burayı açıp Render'ı yeşile döndürüyoruz
+    port = int(os.environ.get("PORT", 10000))
+    handler = SimpleHTTPRequestHandler
+    # Port hatası vermemesi için reuse_address ekliyoruz
+    TCPServer.allow_reuse_address = True
+    with TCPServer(("0.0.0.0", port), handler) as httpd:
+        print(f"[RENDER HACK] Sahte HTTP Sunucusu {port} portunda açıldı!")
+        httpd.serve_forever()
 
+# =====================================================================
+# SİMÜLE EDİLMİŞ KLASÖR YAPILARI (SIFIR KLASÖR İÇİN)
+# =====================================================================
 class Device:
-    """Eski Logic.Device klasörünün simülasyonu"""
     def __init__(self, client):
         self.client = client
 
 class Players:
-    """Eski Logic.Player klasörünün simülasyonu"""
     def __init__(self, device):
         self.device = device
-        self.low_id = int(time.time()) & 0xffffffff  # Rastgele benzersiz ID
+        self.low_id = int(time.time()) & 0xffffffff
         self.ClientDict = {}
 
 class Utils:
-    """Eski Utility.Utils klasörünün simülasyonu"""
     connected_clients = {'ClientsCount': 0}
 
 class LobbyInfoMessage:
-    """Eski Packets.Messages.Server.Home... klasörünün simülasyonu"""
     def __init__(self, client, player, client_count):
         self.client = client
         self.player = player
         self.client_count = client_count
 
     def send(self):
-        # v20 Lobi Paket Yapısı (Giriş Başarılı Sinyali)
-        # Normalde klasörden gelen paket baytlarını burada doğrudan simüle ediyoruz
-        packet_id = 24101  # LoginOk / LobbyInfo paket ID'si
-        packet_data = b'\x00\x00\x00\x00' # Boş veri (Geliştirilebilir)
+        packet_id = 24101
+        packet_data = b'\x00\x00\x00\x00'
         header = packet_id.to_bytes(2, 'big') + len(packet_data).to_bytes(3, 'big') + b'\x00\x00'
         try:
             self.client.send(header + packet_data)
         except:
             pass
 
-# Tetiklenebilir hazır paketlerin listesi (Eski AvailablePackets)
 AvailablePackets = {}
 
 # =====================================================================
-# ANA SUNUCU KODLARI
+# ANA BRAWL STARS SUNUCU KODLARI
 # =====================================================================
-
 def _(*args):
     print('[INFO]', end=' ')
     for arg in args:
@@ -61,14 +67,13 @@ class Server:
     
     def __init__(self, ip: str, port: int):
         self.server = socket.socket()
-        # Render (Linux) üzerinde port hatası almamak için soketi yeniden kullanılabilir yapıyoruz
         self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.port = port
         self.ip = ip
 
     def start(self):
         self.server.bind((self.ip, self.port))
-        _(f'Server started! Ip: {self.ip}, Port: {self.port}')
+        _(f'Brawl Stars Server started! Ip: {self.ip}, Port: {self.port}')
         while True:
             self.server.listen()
             client, address = self.server.accept()
@@ -89,7 +94,6 @@ class ClientThread(Thread):
         while len(data) < length:
             s = self.client.recv(length)
             if not s:
-                print("Receive Error!")
                 break
             data += s
         return data
@@ -105,7 +109,6 @@ class ClientThread(Thread):
                     PacketLenght = int.from_bytes(header[2:5], 'big')
                     PacketData = self.recvall(PacketLenght)
                     
-                    # Giriş yapan oyuncuya doğrudan lobi bilgisini basıyoruz
                     LobbyInfoMessage(self.client, self.player, Utils.connected_clients['ClientsCount']).send()
                     
                     if PacketID in AvailablePackets:
@@ -122,20 +125,15 @@ class ClientThread(Thread):
                         _(f'Packet {PacketID} is not handled!')
                         
                 if time.time() - LastPacketRecived > 10:
-                    print(f"[INFO] Ip: {self.address[0]} disconnected!")
                     self.client.close()
                     break
-        except ConnectionAbortedError:
-            print(f"[INFO] Ip: {self.address[0]} disconnected!")
-            self.client.close()
-        except ConnectionResetError:
-            print(f"[INFO] Ip: {self.address[0]} disconnected!")
-            self.client.close()
-        except TimeoutError:
-            print(f"[INFO] Ip: {self.address[0]} disconnected!")
+        except:
             self.client.close()
 
 if __name__ == '__main__':
-    # Render üzerinde sunucunun ayağa kalkması için '0.0.0.0' olarak kalmalı
+    # 1. Önce Render'ı kandıracak HTTP sunucusunu yan tarafta (Thread) başlatıyoruz
+    Thread(target=run_fake_http, daemon=True).start()
+    
+    # 2. Ana Brawl Stars sunucumuzu kendi portunda ayağa kaldırıyoruz
     server = Server('0.0.0.0', 9339)
     server.start()
